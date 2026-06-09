@@ -33,4 +33,16 @@ public class ApiKeyGenerator {
                 .withoutPadding()
                 .encodeToString(randomBytes);
     }
+
+    public String generateMerchantCode() {
+        String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder code = new StringBuilder("PG-MCH-");
+
+        for (int i = 0; i < 6; i++) {
+            int index = secureRandom.nextInt(characters.length());
+            code.append(characters.charAt(index));
+        }
+
+        return code.toString();
+    }
 }
