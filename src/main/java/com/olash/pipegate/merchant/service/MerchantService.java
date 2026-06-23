@@ -63,17 +63,21 @@ public class MerchantService {
                 .status(MerchantStatus.PENDING_VERIFICATION)
                 .build();
 
-        merchantRepository.save(merchant);
+        merchant = merchantRepository.save(merchant);
+
+        merchantRepository.flush();
+        log.info("CreatedAt = {}", merchant.getCreatedAt());
 
         log.info("Merchant record created. merchantCode={}, email={}",
                 merchantCode, request.getEmail());
 
         Set<ServiceType> requestedServices = request.getRequestedServices();
 
+        Merchant savedMerchant = merchant;
         requestedServices.forEach(serviceType -> {
             MerchantServiceEntity serviceRecord =
                     MerchantServiceEntity.builder()
-                    .merchant(merchant)
+                    .merchant(savedMerchant)
                     .serviceType(serviceType)
                     .status(ServiceStatus.ACTIVE)
                     .requestedAt(LocalDateTime.now())

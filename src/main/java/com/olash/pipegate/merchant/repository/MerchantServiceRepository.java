@@ -1,6 +1,6 @@
 package com.olash.pipegate.merchant.repository;
 
-import com.olash.pipegate.merchant.domain.MerchantService;
+import com.olash.pipegate.merchant.domain.MerchantServiceEntity;
 import com.olash.pipegate.merchant.domain.ServiceStatus;
 import com.olash.pipegate.merchant.domain.ServiceType;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,11 +11,11 @@ import java.util.Optional;
 
 @Repository
 public interface MerchantServiceRepository
-        extends JpaRepository<MerchantService, String> {
+        extends JpaRepository<MerchantServiceEntity, String> {
 
-    List<MerchantService> findByMerchantId(String merchantId);
+    List<MerchantServiceEntity> findByMerchantId(String merchantId);
 
-    Optional<MerchantService> findByMerchantIdAndServiceType(
+    Optional<MerchantServiceEntity> findByMerchantIdAndServiceType(
             String merchantId,
             ServiceType serviceType);
 
@@ -23,5 +23,5 @@ public interface MerchantServiceRepository
             String merchantId,
             ServiceType serviceType);
 
-    List<MerchantService> findByStatus(ServiceStatus status);
+    List<MerchantServiceEntity> findByStatus(ServiceStatus status);
 }

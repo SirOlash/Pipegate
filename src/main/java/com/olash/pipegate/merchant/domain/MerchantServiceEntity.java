@@ -14,7 +14,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class MerchantService {
+public class MerchantServiceEntity {
     @Id
     @Column(name = "id", updatable = false, nullable = false)
     private String id;

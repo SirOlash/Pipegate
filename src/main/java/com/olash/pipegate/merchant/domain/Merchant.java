@@ -77,7 +77,7 @@ public class Merchant {
             cascade = CascadeType.ALL,
             fetch = FetchType.LAZY)
     @Builder.Default
-    private List<MerchantService> services = new ArrayList<>();
+    private List<MerchantServiceEntity> services = new ArrayList<>();
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -101,7 +101,7 @@ public class Merchant {
     }
 
     public boolean hasActiveService(ServiceType serviceType) {
-        for (MerchantService service : this.services) {
+        for (MerchantServiceEntity service : this.services) {
             if (service.getServiceType() == serviceType &&
                     service.getStatus() == ServiceStatus.ACTIVE) {
                 return true;
