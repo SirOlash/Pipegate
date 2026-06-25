@@ -1,16 +1,15 @@
 package com.olash.pipegate.merchant.service;
 
-import com.olash.pipegate.common.exception.DuplicateEmailException;
-import com.olash.pipegate.common.exception.InvalidOtpException;
-import com.olash.pipegate.common.exception.MerchantNotFoundException;
-import com.olash.pipegate.common.exception.UnauthorizedServiceException;
+import com.olash.pipegate.common.exception.*;
 import com.olash.pipegate.common.util.ApiKeyGenerator;
+import com.olash.pipegate.common.util.JwtUtil;
 import com.olash.pipegate.common.util.OtpUtil;
 import com.olash.pipegate.merchant.domain.*;
 import com.olash.pipegate.merchant.dto.*;
 import com.olash.pipegate.merchant.repository.MerchantRepository;
 import com.olash.pipegate.merchant.repository.MerchantServiceRepository;
 import com.olash.pipegate.merchant.repository.MerchantVerificationRepository;
+import com.olash.pipegate.merchant.repository.RefreshTokenRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -34,6 +35,8 @@ public class MerchantService {
     private final ApiKeyGenerator apiKeyGenerator;
     private final OtpUtil otpUtil;
     private final PasswordEncoder passwordEncoder;
+    private final JwtUtil jwtUtil;
+    private final RefreshTokenRepository refreshTokenRepository;
 
 
     @Transactional
@@ -77,13 +80,13 @@ public class MerchantService {
         requestedServices.forEach(serviceType -> {
             MerchantServiceEntity serviceRecord =
                     MerchantServiceEntity.builder()
-                    .merchant(savedMerchant)
-                    .serviceType(serviceType)
-                    .status(ServiceStatus.ACTIVE)
-                    .requestedAt(LocalDateTime.now())
-                    .reviewedBy("SYSTEM")
-                    .reviewedAt(LocalDateTime.now())
-                    .build();
+                            .merchant(savedMerchant)
+                            .serviceType(serviceType)
+                            .status(ServiceStatus.ACTIVE)
+                            .requestedAt(LocalDateTime.now())
+                            .reviewedBy("SYSTEM")
+                            .reviewedAt(LocalDateTime.now())
+                            .build();
 
             merchantServiceRepository.save(serviceRecord);
         });
@@ -280,4 +283,131 @@ public class MerchantService {
                 "Our team will review and respond within 2-3 business days.";
     }
 
+    public LoginResponse login(LoginRequest request) {
+
+        log.info("Login attempt. email={}", request.getEmail());
+
+        Merchant merchant = merchantRepository
+                .findByEmail(request.getEmail())
+                .orElseThrow(() -> new InvalidCredentialsException(
+                        "Invalid email or password"));
+
+        if (merchant.getStatus() == MerchantStatus.PENDING_VERIFICATION) {
+            log.warn("Login attempt on unverified account. email={}",
+                    request.getEmail());
+            throw new AccountNotVerifiedException(
+                    "Please verify your email before logging in");
+        }
+
+        if (merchant.getStatus() == MerchantStatus.SUSPENDED) {
+            log.warn("Login attempt on suspended account. email={}",
+                    request.getEmail());
+            throw new InvalidCredentialsException(
+                    "Your account has been suspended. " +
+                            "Please contact support");
+        }
+
+        if (!passwordEncoder.matches(
+                request.getPassword(), merchant.getPasswordHash())) {
+            log.warn("Invalid password attempt. email={}", request.getEmail());
+            throw new InvalidCredentialsException(
+                    "Invalid email or password");
+        }
+
+        String accessToken = jwtUtil.generateAccessToken(
+                merchant.getId(),
+                merchant.getMerchantCode(),
+                merchant.getEmail());
+
+        String rawRefreshToken = jwtUtil.generateRawRefreshToken();
+        String refreshTokenHash = jwtUtil.hashRefreshToken(rawRefreshToken);
+
+        refreshTokenRepository.revokeAllMerchantTokens(merchant.getId());
+
+        RefreshToken refreshToken = RefreshToken.builder()
+                .merchant(merchant)
+                .tokenHash(refreshTokenHash)
+                .expiresAt(LocalDateTime.now()
+                        .plusDays(jwtUtil.getRefreshTokenExpiryDays()))
+                .revoked(false)
+                .build();
+
+        refreshTokenRepository.save(refreshToken);
+
+        Map<ServiceType, ServiceStatus> servicesMap =
+                new HashMap<>();
+
+        List<MerchantServiceEntity> serviceList =
+                merchantServiceRepository
+                        .findByMerchantId(merchant.getId());
+
+        for (MerchantServiceEntity s : serviceList) {
+            servicesMap.put(s.getServiceType(), s.getStatus());
+        }
+
+        log.info("Login successful. merchantCode={}",
+                merchant.getMerchantCode());
+
+        return LoginResponse.builder()
+                .merchantId(merchant.getId())
+                .merchantCode(merchant.getMerchantCode())
+                .businessName(merchant.getBusinessName())
+                .email(merchant.getEmail())
+                .mode(merchant.getMode())
+                .status(merchant.getStatus())
+                .services(servicesMap)
+                .accessToken(accessToken)
+                .refreshToken(rawRefreshToken)
+                .tokenType("Bearer")
+                .accessTokenExpiresInMinutes(15)
+                .build();
+    }
+
+    @Transactional
+    public TokenResponse refreshAccessToken(RefreshTokenRequest request) {
+
+        log.info("Token refresh attempt");
+
+        String tokenHash = jwtUtil.hashRefreshToken(
+                request.getRefreshToken());
+
+        RefreshToken refreshToken = refreshTokenRepository
+                .findByTokenHash(tokenHash)
+                .orElseThrow(() -> new InvalidTokenException(
+                        "Invalid refresh token"));
+
+        if (!refreshToken.isValid()) {
+            log.warn("Expired or revoked refresh token used. merchantId={}",
+                    refreshToken.getMerchant().getId());
+            throw new InvalidTokenException(
+                    "Refresh token has expired or been revoked. " +
+                            "Please log in again");
+        }
+
+        Merchant merchant = refreshToken.getMerchant();
+        String newAccessToken = jwtUtil.generateAccessToken(
+                merchant.getId(),
+                merchant.getMerchantCode(),
+                merchant.getEmail());
+
+        log.info("Access token refreshed. merchantCode={}",
+                merchant.getMerchantCode());
+
+        return TokenResponse.builder()
+                .accessToken(newAccessToken)
+                .tokenType("Bearer")
+                .expiresInMinutes(15)
+                .build();
+    }
+
+    @Transactional
+    public void logout(String merchantId) {
+
+        log.info("Logout request. merchantId={}", merchantId);
+
+        refreshTokenRepository.revokeAllMerchantTokens(merchantId);
+
+        log.info("Merchant logged out, all tokens revoked. merchantId={}",
+                merchantId);
+    }
 }
