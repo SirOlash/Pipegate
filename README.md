@@ -92,7 +92,7 @@ Relevant code:
      refresh-token-expiry-days: 30
    ```
 
-   Generate `secret` as a **random 32-byte (64-hex-character) value or longer**; `JwtUtil` parses it as hex. This secret must remain private and must **never be committed**. A local `application.yml` may not be ignored by this repository's current `.gitignore`: check `git status` and add it to your local exclusions before any commit.
+   Generate `secret` as a **random 32-byte (64-hex-character) value or longer**; `JwtUtil` parses it as hex. This secret must remain private and must **never be committed**. The repository's `.gitignore` already excludes `application.yml`; still check `git status` before committing changes.
 
 5. Start the application:
 
